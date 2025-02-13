@@ -522,16 +522,30 @@ module RubySMB
       # [2.2.10.1 USER_PROPERTIES](https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-samr/8263e7ab-aba9-43d2-8a36-3a9cb2dd3dad)
       class UserProperties < BinData::Record
         endian :little
+        hide   :bytes_remaining
 
         uint32 :reserved1
-        uint32 :struct_length, initial_value: -> { num_bytes - 12 }
+        # Length, in bytes, of the entire structure, starting from the :reserved4 field (offset 12):
+        uint32 :struct_length, value: -> { num_bytes - 12}
         uint16 :reserved2
         uint16 :reserved3
         string :reserved4, length: 96
         uint16 :property_signature, initial_value: 0x50
-        uint16 :property_count, initial_value: -> { user_properties.size }, onlyif: -> { struct_length > 111 }
-        array  :user_properties, type: :user_property, initial_length: :property_count, onlyif: :property_count?
+        count_bytes_remaining :bytes_remaining
+        # When there are zero `user_property` elements in the `:user_properties` field, this field MUST be omitted;
+        # the resultant `UserProperties` structure has a constant size of 0x6F bytes.
+        uint16 :property_count, value: -> { user_properties.size }, onlyif: :display_user_properties?
+        array  :user_properties, type: :user_property, read_until: -> { array.size == property_count }, onlyif: :display_user_properties?
         uint8  :reserved5
+
+        def display_user_properties?
+          bytes_remaining > 1 || user_properties.size > 0
+        end
+
+        def do_read(io)
+          super
+          bytes_remaining.clear
+        end
       end
 
       # [2.2.10.7 KERB_KEY_DATA_NEW](https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-samr/447520a5-e1cc-48cc-8fdc-b90db57f7eac)
